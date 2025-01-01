@@ -21,6 +21,7 @@ import time
 import warnings
 from collections import deque
 from concurrent import futures
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Tuple
 
@@ -28,7 +29,6 @@ import psutil
 import setproctitle
 import torch
 import zmq
-
 from sglang.global_config import global_config
 from sglang.srt.configs.model_config import ModelConfig
 from sglang.srt.hf_transformers_utils import get_processor, get_tokenizer
@@ -38,14 +38,22 @@ from sglang.srt.managers.io_struct import (
     BatchEmbeddingOut,
     BatchTokenIDOut,
     CloseSessionReqInput,
+    CreateSnapshotReqInput,
+    CreateSnapshotReqOutput,
+    DeleteSnapshotReqInput,
+    DeleteSnapshotReqOutput,
     FlushCacheReq,
     GetWeightsByNameReqInput,
     GetWeightsByNameReqOutput,
     InitWeightsUpdateGroupReqInput,
     InitWeightsUpdateGroupReqOutput,
+    ListSnapshotsReqInput,
+    ListSnapshotsReqOutput,
     OpenSessionReqInput,
     OpenSessionReqOutput,
     ProfileReq,
+    RestoreSnapshotReqInput,
+    RestoreSnapshotReqOutput,
     TokenizedEmbeddingReqInput,
     TokenizedGenerateReqInput,
     UpdateWeightFromDiskReqInput,
@@ -469,6 +477,86 @@ class Scheduler:
                 self.flush_cache()
             elif isinstance(recv_req, AbortReq):
                 self.abort_request(recv_req)
+            elif isinstance(recv_req, CreateSnapshotReqInput):
+                try:
+                    metadata = self.tree_cache.create_snapshot(
+                        snapshot_dir=Path(recv_req.path),
+                        name=recv_req.name,
+                        description=recv_req.description,
+                        tags=recv_req.tags,
+                    )
+                    self.send_to_tokenizer.send_pyobj(
+                        CreateSnapshotReqOutput(
+                            success=True,
+                            message="Snapshot created successfully",
+                            snapshot_id=metadata.snapshot_id,
+                            metadata=metadata,
+                        )
+                    )
+                except Exception as e:
+                    self.send_to_tokenizer.send_pyobj(
+                        CreateSnapshotReqOutput(
+                            success=False,
+                            message=str(e),
+                            snapshot_id=None,
+                            metadata=None,
+                        )
+                    )
+            elif isinstance(recv_req, RestoreSnapshotReqInput):
+                try:
+                    metadata = self.tree_cache.restore_snapshot(
+                        snapshot_dir=Path(recv_req.path),
+                        snapshot_id=recv_req.snapshot_id,
+                        validate=recv_req.validate,
+                    )
+                    self.send_to_tokenizer.send_pyobj(
+                        RestoreSnapshotReqOutput(
+                            success=True,
+                            message="Snapshot restored successfully",
+                            metadata=metadata,
+                        )
+                    )
+                except Exception as e:
+                    self.send_to_tokenizer.send_pyobj(
+                        RestoreSnapshotReqOutput(
+                            success=False, message=str(e), metadata=None
+                        )
+                    )
+            elif isinstance(recv_req, ListSnapshotsReqInput):
+                try:
+                    snapshots = self.tree_cache.list_snapshots(
+                        tags=recv_req.tags,
+                        start_time=recv_req.start_time,
+                        end_time=recv_req.end_time,
+                        limit=recv_req.limit,
+                    )
+                    self.send_to_tokenizer.send_pyobj(
+                        ListSnapshotsReqOutput(
+                            success=True,
+                            message="Snapshots retrieved successfully",
+                            snapshots=snapshots,
+                        )
+                    )
+                except Exception as e:
+                    self.send_to_tokenizer.send_pyobj(
+                        ListSnapshotsReqOutput(
+                            success=False, message=str(e), snapshots=[]
+                        )
+                    )
+            elif isinstance(recv_req, DeleteSnapshotReqInput):
+                try:
+                    self.tree_cache.delete_snapshot(
+                        snapshot_id=recv_req.snapshot_id, force=recv_req.force
+                    )
+                    self.send_to_tokenizer.send_pyobj(
+                        DeleteSnapshotReqOutput(
+                            success=True, message="Snapshot deleted successfully"
+                        )
+                    )
+                except Exception as e:
+                    self.send_to_tokenizer.send_pyobj(
+                        DeleteSnapshotReqOutput(success=False, message=str(e))
+                    )
             elif isinstance(recv_req, UpdateWeightFromDiskReqInput):
                 success, message = self.update_weights_from_disk(recv_req)
                 self.send_to_tokenizer.send_pyobj(
@@ -517,7 +605,6 @@ class Scheduler:
             or recv_req.session_params.id is None
             or recv_req.session_params.id not in self.sessions
         ):
-
             if recv_req.input_embeds is not None:
                 # Generate fake input_ids based on the length of input_embeds
                 seq_length = len(recv_req.input_embeds)
@@ -1138,9 +1225,7 @@ class Scheduler:
             ]
 
             input_token_logprobs_idx = req.fill_ids[
-                len(req.fill_ids)
-                - num_input_logprobs
-                + 1 : len(req.fill_ids)
+                len(req.fill_ids) - num_input_logprobs + 1 : len(req.fill_ids)
                 - req.last_update_decode_tokens
             ]
             # Clip the padded hash values from image tokens.
@@ -1163,18 +1248,16 @@ class Scheduler:
             # Some decode tokens are re-computed in an extend batch
             req.output_token_logprobs_val.extend(
                 output.input_token_logprobs[
-                    pt
-                    + num_input_logprobs
-                    - 1
-                    - req.last_update_decode_tokens : pt
+                    pt + num_input_logprobs - 1 - req.last_update_decode_tokens : pt
                     + num_input_logprobs
                     - 1
                 ],
             )
             req.output_token_logprobs_idx.extend(
                 req.fill_ids[
-                    len(req.fill_ids)
-                    - req.last_update_decode_tokens : len(req.fill_ids)
+                    len(req.fill_ids) - req.last_update_decode_tokens : len(
+                        req.fill_ids
+                    )
                 ]
             )
 
@@ -1518,7 +1601,7 @@ class Scheduler:
             logger.warning(f"session id {session_id} already exist, cannot open.")
             return session_id, False
         elif session_id is None:
-            logger.warning(f"session id is None, cannot open.")
+            logger.warning("session id is None, cannot open.")
             return session_id, False
         else:
             self.sessions[session_id] = Session(

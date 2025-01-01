@@ -40,8 +40,6 @@ import uvloop
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse, Response, StreamingResponse
-from uvicorn.config import LOGGING_CONFIG
-
 from sglang.lang.backend.runtime_endpoint import RuntimeEndpoint
 from sglang.srt.hf_transformers_utils import get_tokenizer
 from sglang.srt.managers.data_parallel_controller import (
@@ -50,11 +48,19 @@ from sglang.srt.managers.data_parallel_controller import (
 from sglang.srt.managers.detokenizer_manager import run_detokenizer_process
 from sglang.srt.managers.io_struct import (
     CloseSessionReqInput,
+    CreateSnapshotReqInput,
+    CreateSnapshotReqOutput,
+    DeleteSnapshotReqInput,
+    DeleteSnapshotReqOutput,
     EmbeddingReqInput,
     GenerateReqInput,
     GetWeightsByNameReqInput,
     InitWeightsUpdateGroupReqInput,
+    ListSnapshotsReqInput,
+    ListSnapshotsReqOutput,
     OpenSessionReqInput,
+    RestoreSnapshotReqInput,
+    RestoreSnapshotReqOutput,
     UpdateWeightFromDiskReqInput,
     UpdateWeightsFromDistributedReqInput,
     UpdateWeightsFromTensorReqInput,
@@ -92,6 +98,7 @@ from sglang.srt.utils import (
 )
 from sglang.utils import get_exception_traceback
 from sglang.version import __version__
+from uvicorn.config import LOGGING_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -288,14 +295,18 @@ async def generate_request(obj: GenerateReqInput, request: Request):
         async def stream_results() -> AsyncIterator[bytes]:
             try:
                 async for out in tokenizer_manager.generate_request(obj, request):
-                    yield b"data: " + orjson.dumps(
-                        out, option=orjson.OPT_NON_STR_KEYS
-                    ) + b"\n\n"
+                    yield (
+                        b"data: "
+                        + orjson.dumps(out, option=orjson.OPT_NON_STR_KEYS)
+                        + b"\n\n"
+                    )
             except ValueError as e:
                 out = {"error": {"message": str(e)}}
-                yield b"data: " + orjson.dumps(
-                    out, option=orjson.OPT_NON_STR_KEYS
-                ) + b"\n\n"
+                yield (
+                    b"data: "
+                    + orjson.dumps(out, option=orjson.OPT_NON_STR_KEYS)
+                    + b"\n\n"
+                )
             yield b"data: [DONE]\n\n"
 
         return StreamingResponse(
@@ -405,6 +416,77 @@ async def retrieve_file(file_id: str):
 async def retrieve_file_content(file_id: str):
     # https://platform.openai.com/docs/api-reference/files/retrieve-contents
     return await v1_retrieve_file_content(file_id)
+
+
+##### Snapshot API endpoints #####
+
+
+@app.post("/snapshots", response_class=ORJSONResponse)
+async def create_snapshot(
+    request: Request,
+    name: str,
+    description: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+) -> CreateSnapshotReqOutput:
+    """Create a new snapshot of the current cache state."""
+    try:
+        req = CreateSnapshotReqInput(name=name, description=description, tags=tags)
+        return await tokenizer_manager.create_snapshot(req, request)
+    except Exception as e:
+        logger.exception(e)
+        return _create_error_response(e)
+
+
+@app.get("/snapshots", response_class=ORJSONResponse)
+async def list_snapshots(
+    request: Request,
+    tags: Optional[List[str]] = None,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
+    limit: Optional[int] = None,
+) -> ListSnapshotsReqOutput:
+    """List available snapshots with optional filters."""
+    try:
+        req = ListSnapshotsReqInput(
+            tags=tags,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit,
+        )
+        return await tokenizer_manager.list_snapshots(req, request)
+    except Exception as e:
+        logger.exception(e)
+        return _create_error_response(e)
+
+
+@app.post("/snapshots/{snapshot_id}/restore", response_class=ORJSONResponse)
+async def restore_snapshot(
+    request: Request,
+    snapshot_id: str,
+    validate: bool = True,
+) -> RestoreSnapshotReqOutput:
+    """Restore the cache state from a snapshot."""
+    try:
+        req = RestoreSnapshotReqInput(snapshot_id=snapshot_id, validate=validate)
+        return await tokenizer_manager.restore_snapshot(req, request)
+    except Exception as e:
+        logger.exception(e)
+        return _create_error_response(e)
+
+
+@app.delete("/snapshots/{snapshot_id}", response_class=ORJSONResponse)
+async def delete_snapshot(
+    request: Request,
+    snapshot_id: str,
+    force: bool = False,
+) -> DeleteSnapshotReqOutput:
+    """Delete a snapshot."""
+    try:
+        req = DeleteSnapshotReqInput(snapshot_id=snapshot_id, force=force)
+        return await tokenizer_manager.delete_snapshot(req, request)
+    except Exception as e:
+        logger.exception(e)
+        return _create_error_response(e)
 
 
 def _create_error_response(e):
@@ -549,13 +631,13 @@ def launch_server(
 
     try:
         # Update logging configs
-        LOGGING_CONFIG["formatters"]["default"][
-            "fmt"
-        ] = "[%(asctime)s] %(levelprefix)s %(message)s"
+        LOGGING_CONFIG["formatters"]["default"]["fmt"] = (
+            "[%(asctime)s] %(levelprefix)s %(message)s"
+        )
         LOGGING_CONFIG["formatters"]["default"]["datefmt"] = "%Y-%m-%d %H:%M:%S"
-        LOGGING_CONFIG["formatters"]["access"][
-            "fmt"
-        ] = '[%(asctime)s] %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s'
+        LOGGING_CONFIG["formatters"]["access"]["fmt"] = (
+            '[%(asctime)s] %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s'
+        )
         LOGGING_CONFIG["formatters"]["access"]["datefmt"] = "%Y-%m-%d %H:%M:%S"
 
         # Listen for HTTP requests
@@ -787,7 +869,6 @@ class Engine:
             generator = ret.body_iterator
 
             async def generator_wrapper():
-
                 offset = 0
 
                 while True:

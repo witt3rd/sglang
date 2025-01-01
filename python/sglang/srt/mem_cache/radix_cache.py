@@ -21,51 +21,29 @@ The radix tree data structure for managing the KV cache.
 
 import heapq
 import time
-from collections import defaultdict
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
 import torch
-
 from sglang.srt.mem_cache.base_prefix_cache import BasePrefixCache
 from sglang.srt.mem_cache.memory_pool import BaseTokenToKVPool, ReqToTokenPool
+from sglang.srt.mem_cache.radix_types import TreeNode, _key_match
+from sglang.srt.mem_cache.snapshot import SnapshotMixin
 
 if TYPE_CHECKING:
     from sglang.srt.managers.schedule_batch import Req
 
 
-class TreeNode:
-    def __init__(self):
-        self.children = defaultdict(TreeNode)
-        self.parent = None
-        self.key = None
-        self.value = None
-        self.lock_ref = 0
-        self.last_access_time = time.time()
+class RadixCache(SnapshotMixin, BasePrefixCache):
+    """A radix tree based cache implementation."""
 
-    def __lt__(self, other: "TreeNode"):
-        return self.last_access_time < other.last_access_time
-
-
-def _key_match(key0: List, key1: List):
-    i = 0
-    for k0, k1 in zip(key0, key1):
-        if k0 != k1:
-            break
-        i += 1
-    return i
-
-
-class RadixCache(BasePrefixCache):
     def __init__(
         self,
-        req_to_token_pool: ReqToTokenPool,
         token_to_kv_pool: BaseTokenToKVPool,
+        req_to_token_pool: ReqToTokenPool,
         disable: bool = False,
     ):
-        self.req_to_token_pool = req_to_token_pool
-        self.token_to_kv_pool = token_to_kv_pool
-        self.disable = disable
-        self.reset()
+        super().__init__(token_to_kv_pool, req_to_token_pool, disable)
+        self._init_snapshot()  # Initialize snapshot support
 
     ##### Public API #####
 

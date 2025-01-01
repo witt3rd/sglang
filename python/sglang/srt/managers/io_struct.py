@@ -17,12 +17,11 @@ processes (TokenizerManager, DetokenizerManager, Controller).
 """
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
-
 from sglang.srt.managers.schedule_batch import BaseFinishReason
 from sglang.srt.sampling.sampling_params import SamplingParams
 
@@ -495,3 +494,75 @@ class CloseSessionReqInput:
 class OpenSessionReqOutput:
     session_id: Optional[str]
     success: bool
+
+
+@dataclass
+class CreateSnapshotReqInput:
+    """Request to create a new snapshot of the RadixCache state."""
+
+    name: Optional[str] = None
+    description: Optional[str] = None
+    tags: Optional[List[str]] = None
+    path: Optional[str] = None
+
+
+@dataclass
+class CreateSnapshotReqOutput:
+    """Response from creating a snapshot."""
+
+    success: bool
+    message: str
+    snapshot_id: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class RestoreSnapshotReqInput:
+    """Request to restore the RadixCache state from a snapshot."""
+
+    snapshot_id: str
+    validate: bool = True
+
+
+@dataclass
+class RestoreSnapshotReqOutput:
+    """Response from restoring a snapshot."""
+
+    success: bool
+    message: str
+    metadata: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class ListSnapshotsReqInput:
+    """Request to list available snapshots with optional filters."""
+
+    tags: Optional[List[str]] = None
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+    limit: Optional[int] = None
+
+
+@dataclass
+class ListSnapshotsReqOutput:
+    """Response containing filtered list of snapshots."""
+
+    success: bool
+    message: str
+    snapshots: List[Dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class DeleteSnapshotReqInput:
+    """Request to delete a snapshot."""
+
+    snapshot_id: str
+    force: bool = False
+
+
+@dataclass
+class DeleteSnapshotReqOutput:
+    """Response from deleting a snapshot."""
+
+    success: bool
+    message: str

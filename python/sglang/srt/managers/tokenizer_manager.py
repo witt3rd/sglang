@@ -29,7 +29,6 @@ import uvloop
 import zmq
 import zmq.asyncio
 from fastapi import BackgroundTasks
-
 from sglang.srt.aio_rwlock import RWLock
 from sglang.srt.configs.model_config import ModelConfig
 from sglang.srt.hf_transformers_utils import get_processor, get_tokenizer
@@ -43,6 +42,10 @@ from sglang.srt.managers.io_struct import (
     BatchStrOut,
     BatchTokenIDOut,
     CloseSessionReqInput,
+    CreateSnapshotReqInput,
+    CreateSnapshotReqOutput,
+    DeleteSnapshotReqInput,
+    DeleteSnapshotReqOutput,
     EmbeddingReqInput,
     FlushCacheReq,
     GenerateReqInput,
@@ -50,9 +53,13 @@ from sglang.srt.managers.io_struct import (
     GetWeightsByNameReqOutput,
     InitWeightsUpdateGroupReqInput,
     InitWeightsUpdateGroupReqOutput,
+    ListSnapshotsReqInput,
+    ListSnapshotsReqOutput,
     OpenSessionReqInput,
     OpenSessionReqOutput,
     ProfileReq,
+    RestoreSnapshotReqInput,
+    RestoreSnapshotReqOutput,
     SessionParams,
     TokenizedEmbeddingReqInput,
     TokenizedGenerateReqInput,
@@ -750,6 +757,14 @@ class TokenizerManager:
                 self.update_weights_from_tensor_communicator.handle_recv(recv_obj)
             elif isinstance(recv_obj, GetWeightsByNameReqOutput):
                 self.get_weights_by_name_communicator.handle_recv(recv_obj)
+            elif isinstance(recv_obj, CreateSnapshotReqOutput):
+                self.model_update_result.set_result(recv_obj)
+            elif isinstance(recv_obj, RestoreSnapshotReqOutput):
+                self.model_update_result.set_result(recv_obj)
+            elif isinstance(recv_obj, ListSnapshotsReqOutput):
+                self.model_update_result.set_result(recv_obj)
+            elif isinstance(recv_obj, DeleteSnapshotReqOutput):
+                self.model_update_result.set_result(recv_obj)
             else:
                 raise ValueError(f"Invalid object: {recv_obj=}")
 
@@ -822,6 +837,60 @@ class TokenizerManager:
             else:
                 ret.append(None)
         return ret
+
+    async def create_snapshot(
+        self,
+        obj: CreateSnapshotReqInput,
+        request: Optional[fastapi.Request] = None,
+    ) -> CreateSnapshotReqOutput:
+        """Create a snapshot of the current cache state."""
+        self.auto_create_handle_loop()
+
+        async with self.model_update_lock.writer_lock:
+            self.send_to_scheduler.send_pyobj(obj)
+            self.model_update_result = asyncio.Future()
+            result = await self.model_update_result
+            return result
+
+    async def restore_snapshot(
+        self,
+        obj: RestoreSnapshotReqInput,
+        request: Optional[fastapi.Request] = None,
+    ) -> RestoreSnapshotReqOutput:
+        """Restore the cache state from a snapshot."""
+        self.auto_create_handle_loop()
+
+        async with self.model_update_lock.writer_lock:
+            self.send_to_scheduler.send_pyobj(obj)
+            self.model_update_result = asyncio.Future()
+            result = await self.model_update_result
+            return result
+
+    async def list_snapshots(
+        self,
+        obj: ListSnapshotsReqInput,
+        request: Optional[fastapi.Request] = None,
+    ) -> ListSnapshotsReqOutput:
+        """List available snapshots with optional filters."""
+        self.auto_create_handle_loop()
+
+        self.send_to_scheduler.send_pyobj(obj)
+        self.model_update_result = asyncio.Future()
+        result = await self.model_update_result
+        return result
+
+    async def delete_snapshot(
+        self,
+        obj: DeleteSnapshotReqInput,
+        request: Optional[fastapi.Request] = None,
+    ) -> DeleteSnapshotReqOutput:
+        """Delete a snapshot."""
+        self.auto_create_handle_loop()
+
+        self.send_to_scheduler.send_pyobj(obj)
+        self.model_update_result = asyncio.Future()
+        result = await self.model_update_result
+        return result
 
 
 class SignalHandler:
