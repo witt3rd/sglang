@@ -55,7 +55,7 @@ class RadixTreeSnapshot:
 class SnapshotMetadata:
     """Metadata for managing snapshots."""
 
-    id: str  # Unique snapshot identifier
+    snapshot_id: str  # Unique snapshot identifier
     name: str  # User-provided name
     description: Optional[str]  # Optional description
     tags: List[str]  # Optional tags for categorization

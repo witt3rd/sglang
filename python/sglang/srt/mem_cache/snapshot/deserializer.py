@@ -97,7 +97,7 @@ class RadixTreeDeserializer:
             data = json.load(f)
 
         return SnapshotMetadata(
-            id=data["id"],
+            snapshot_id=data["snapshot_id"],
             name=data["name"],
             description=data["description"],
             tags=data["tags"],
