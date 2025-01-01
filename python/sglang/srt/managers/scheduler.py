@@ -24,6 +24,7 @@ from concurrent import futures
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Tuple
+from dataclasses import asdict
 
 import psutil
 import setproctitle
@@ -485,14 +486,11 @@ class Scheduler:
                         description=recv_req.description,
                         tags=recv_req.tags,
                     )
-                    # Convert metadata to dict for API response
-                    metadata_dict = self.tree_cache.serializer._serialize_metadata(metadata)
                     self.send_to_tokenizer.send_pyobj(
                         CreateSnapshotReqOutput(
                             success=True,
                             message="Snapshot created successfully",
-                            snapshot_id=metadata.id,
-                            metadata=metadata_dict,
+                            metadata=asdict(metadata)
                         )
                     )
                 except Exception as e:

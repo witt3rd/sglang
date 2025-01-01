@@ -80,7 +80,7 @@ class RadixTreeSerializer:
 
         # Create and save metadata
         metadata = SnapshotMetadata(
-            id=snapshot_dir.name,
+            snapshot_id=snapshot_dir.name,
             name=name,
             description=description,
             tags=tags or [],
@@ -201,7 +201,7 @@ class RadixTreeSerializer:
     def _serialize_metadata(self, metadata: SnapshotMetadata) -> Dict:
         """Convert metadata to JSON-serializable dict."""
         return {
-            "snapshot_id": metadata.id,
+            "snapshot_id": metadata.snapshot_id,
             "name": metadata.name,
             "description": metadata.description,
             "tags": metadata.tags,
