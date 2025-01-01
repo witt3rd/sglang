@@ -430,7 +430,8 @@ async def create_snapshot(
 ) -> CreateSnapshotReqOutput:
     """Create a new snapshot of the current cache state."""
     try:
-        req = CreateSnapshotReqInput(name=name, description=description, tags=tags)
+        path = os.path.join(tokenizer_manager.server_args.file_storage_pth, "snapshots")
+        req = CreateSnapshotReqInput(name=name, description=description, tags=tags, path=path)
         return await tokenizer_manager.create_snapshot(req, request)
     except Exception as e:
         logger.exception(e)
