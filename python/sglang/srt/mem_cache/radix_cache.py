@@ -42,7 +42,18 @@ class RadixCache(SnapshotMixin, BasePrefixCache):
         req_to_token_pool: ReqToTokenPool,
         disable: bool = False,
     ):
-        super().__init__(token_to_kv_pool, req_to_token_pool, disable)
+        # Initialize BasePrefixCache
+        BasePrefixCache.__init__(self)
+        # Initialize instance variables
+        self.token_to_kv_pool = token_to_kv_pool
+        self.req_to_token_pool = req_to_token_pool
+        self.disable = disable
+        self.root_node = TreeNode()
+        self.root_node.key = []
+        self.root_node.value = []
+        self.root_node.lock_ref = 1
+        self.evictable_size_ = 0
+        # Initialize SnapshotMixin
         self._init_snapshot()  # Initialize snapshot support
 
     ##### Public API #####
