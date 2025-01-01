@@ -485,12 +485,14 @@ class Scheduler:
                         description=recv_req.description,
                         tags=recv_req.tags,
                     )
+                    # Convert metadata to dict for API response
+                    metadata_dict = self.tree_cache.serializer._serialize_metadata(metadata)
                     self.send_to_tokenizer.send_pyobj(
                         CreateSnapshotReqOutput(
                             success=True,
                             message="Snapshot created successfully",
-                            snapshot_id=metadata.snapshot_id,
-                            metadata=metadata,
+                            snapshot_id=metadata.id,
+                            metadata=metadata_dict,
                         )
                     )
                 except Exception as e:
