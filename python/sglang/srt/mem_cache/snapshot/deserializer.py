@@ -196,9 +196,17 @@ class RadixTreeDeserializer:
                 if not tensor_path.exists():
                     raise FileNotFoundError(f"KV cache tensor not found: {tensor_path}")
 
-                # Load tensor
-                tensor = torch.load(tensor_path)
+                # Load tensors
+                tensors = torch.load(tensor_path)
+                num_layers = len(tensors) // 2  # Each layer has k and v tensors
 
-                # Allocate space in memory pool and copy tensor
-                indices = self.radix_cache.token_to_kv_pool.allocate(len(node.value))
-                self.radix_cache.token_to_kv_pool.write(indices, tensor)
+                # Restore tensors to memory pool
+                for layer_id in range(num_layers):
+                    k_idx = layer_id * 2
+                    v_idx = k_idx + 1
+                    k = tensors[k_idx]
+                    v = tensors[v_idx]
+
+                    # Write to the pool's buffers
+                    self.radix_cache.token_to_kv_pool.k_buffer[layer_id][node.value] = k
+                    self.radix_cache.token_to_kv_pool.v_buffer[layer_id][node.value] = v

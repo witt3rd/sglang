@@ -162,12 +162,16 @@ class RadixTreeSerializer:
 
         for node_id, node in snapshot.nodes.items():
             if node.value:
-                # Get tensor from memory pool
-                tensor = self.radix_cache.token_to_kv_pool.get_tensor(node.value)
+                # Get tensors from memory pool for each layer
+                tensors = []
+                for layer_id in range(self.radix_cache.token_to_kv_pool.layer_num):
+                    k = self.radix_cache.token_to_kv_pool.get_key_buffer(layer_id)[node.value]
+                    v = self.radix_cache.token_to_kv_pool.get_value_buffer(layer_id)[node.value]
+                    tensors.extend([k, v])
 
-                # Save tensor
+                # Save tensors
                 tensor_path = cache_dir / f"{node_id}.pt"
-                torch.save(tensor, tensor_path)
+                torch.save(torch.stack(tensors), tensor_path)
 
                 total_size += tensor_path.stat().st_size
 
